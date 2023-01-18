@@ -1,3 +1,4 @@
+# class to store data (hostname, ip, ttl) about a service
 class A_RECORD:
     def __init__(self, hostname, ip):
         self.hostname = hostname
@@ -13,10 +14,12 @@ class A_RECORD:
         flag = True
         message = ""
 
+        # ip must have 4 parts
         if len(ip.split(".")) != 4:
             message += "IP address should have 4 parts separated by dots...\n"
             flag = False
 
+        # each part must be between 0 and 255 inclusive
         for adr in ip.split("."):
             if not adr or int(adr) > 255 or int(adr) < 0:
                 message += "IP parts should not be higher than 255 and lower than 0\n"
@@ -37,4 +40,3 @@ class A_RECORD:
 
     def __str__(self):
         return f"{self.hostname}: {self.ip}"
-

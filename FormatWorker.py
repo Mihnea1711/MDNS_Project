@@ -4,10 +4,9 @@ FORMAT = "utf-8"
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # HEADER # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-
 def format_MDNS_Header(qr, qd_count, an_count):
     # id
-    transaction_id = 0  # id pe 16 biti (should be 0 on transmission)
+    transaction_id = 0  # id pe 16 bits (should be 0 on transmission)
 
     # flags
     qr_bit = qr
@@ -42,7 +41,7 @@ def unpackHeader(message):
 # in cazul amandurora, formatul este la fel
 # se schimba doar modul cum parsam request-ul
 
-# helper
+# helper to create the names and hostnames list => format: (len label) (len label) (...) 0
 def createLabels(name):
     list = []
     for label in name.split("."):
@@ -53,13 +52,13 @@ def createLabels(name):
     return list
 
 
-# helper
+# helper to create the format for the method above ^
 def createQNameFormat(name):
     labels = name.split(".")
     qname_format = ''
     for i in range(0, len(labels)):
         qname_format += f'B{len(labels[i])}s'
-    qname_format += 'B'  # adaugam un short int = 0 la final ca terminator
+    qname_format += 'B'  # add short int = 0 la final ca terminator
 
     return qname_format
 
@@ -68,12 +67,12 @@ def formatQuestionSection(qname, qtype):
     # qname va fi de forma
 
     # PTR:
-    #     _services._dns-sd._udp.local          <= pt cautare dupa empty string, asta vom trimite ca si query!
+    #     _services._dns-sd._udp.local          <= pt lookup for empty string, asta vom trimite ca si query!
     #       sau
-    #     _scanner._udp.local                   <= pt cautare dupa serviciu
+    #     _scanner._udp.local                   <= pt lookup for serv
 
     # SRV:
-    #     scanner1._scanner._udp.local          <= pentru selectare instanta
+    #     scanner1._scanner._udp.local          <= pt selectare instanta
 
     # # # # # # # # # QNAME FORMATTING
 
@@ -105,15 +104,16 @@ def formatQuestionSection(qname, qtype):
 
 # create the actual request
 def createRequest(query, qr_bit, qtype):
+    # pack the header and the question together
     header = format_MDNS_Header(qr_bit, 1, 0)
     question = formatQuestionSection(query, qtype)
 
     return header + question
 
 
-# # # # # # # # # # # # # # # # # # # # #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-# helper
+# helper to unpack the name/hostname/..
 def unpackName(message, offset):
     labels = []
     flag = True
@@ -130,17 +130,18 @@ def unpackName(message, offset):
     return ".".join(labels), offset
 
 
-# helper
+# helper to unpack the query inside a request (return only the actual data and the type: srv/ptr)
 def unpackQuery(request):
     offset = 12             # start unpacking after the header
 
     query, offset = unpackName(request, offset)
     qtype = struct.unpack_from("!H", request, offset)[0]
-    # could unpack the other data, but it is not demanded (can use it for additional checks)
+    # could unpack the other data, but there is no need (can use it for additional checks)
 
     return query, qtype
 
 
+# parse the actual request
 def parseRequest(request):
     flags, qd_count, an_count = unpackHeader(request)
     query, qtype = unpackQuery(request)
@@ -174,7 +175,7 @@ def formatTypeA(name, ip, ttl):
     # type A => 1
     rtype = 1
 
-    # everytime we get Type A, we flush the record from cache
+    # everytime we get type A response, we flush the record from the cache
     cache_flush_bit = 1
     rclass = int(f"{cache_flush_bit}000000000000001", 2)
 
@@ -186,7 +187,9 @@ def formatTypeA(name, ip, ttl):
                        data_length, *ip_parts)
 
 
+# create the actual type A response
 def createResponse_TypeA(hostname, ip, ttl):
+    # pack the header and the A response
     header = format_MDNS_Header(1, 0, 1)
     answer = formatTypeA(hostname, ip, ttl)
 
@@ -202,14 +205,15 @@ def formatTypePTR(name, service, ttl):
     # data length: 4
     # 'domain name': instance + proto + domain
 
-    # name va fi de forma: hostname._protocol.local
+    # name va fi de forma: hostname._protocol.local     # pot fi mai multe protocoale, noi folosim doar udp
+    # aici hostname si instance cam difera, dar le-am folosit ca fiind acelasi lucru din simplitate
     hostname, protocol, domain_name = name.split(".")
     rname_components = createLabels(name)
 
     # type PTR => 12
     rtype = 12
 
-    # don't need to cache flush anything here
+    # don't need to flush anything from cache
     cache_flush_bit = 0
     rclass = int(f"{cache_flush_bit}000000000000001", 2)
 
@@ -225,7 +229,9 @@ def formatTypePTR(name, service, ttl):
             *rname_components, rtype, rclass, ttl, data_length, *data_components)
 
 
+# create the actual PTR response
 def createResponse_TypePTR(hostname, service, ttl):
+    # pack the header and the PTR response
     header = format_MDNS_Header(1, 0, 1)
     answer = formatTypePTR(hostname, service, ttl)
 
@@ -233,6 +239,7 @@ def createResponse_TypePTR(hostname, service, ttl):
 
 
 # unpack any of typeA or typePTR
+# unpacking is similar, the only thing that is different is the content of the data field
 def unpackSimpleResponse(response):
     offset = 12
     rname, offset = unpackName(response, offset)
@@ -266,7 +273,7 @@ def unpackSimpleResponse(response):
     return rname, rtype, rclass, ttl, data
 
 
-# parse simple response
+# parse simple response (type A or type PTR)
 def parseSimpleResponse(response):
     flags, qd_count, an_count = unpackHeader(response)
     if an_count == 1:
@@ -306,9 +313,10 @@ def formatTypeSRV(name, target, port, ttl):
     hostname, _ = target.split(".")
     data_length = 2 + 2 + 2 + (len(target) + 1)
 
+    # these are not used
     priority = 0
     weight = 0
-    # port
+    # port = current port
     rtarget_components = createLabels(target)
 
     return struct.pack(
@@ -329,13 +337,14 @@ def formatTypeTXT(name, ttl, txt_record_list):
     # [....]
     # name_compression_pointer = int("1100000000000000", 2)  # wtf is this (don't need it)
 
-    # name va fi de forma scanner1.local
+    # name ar fi de forma scanner1._udp.local dar am folosit doar scanner1.local din simplitatea crearii mesajului
     hostname, domain_name = name.split(".")
     rname_components = createLabels(name)
 
     # type TXT => 16
     rtype = 16
 
+    # always flush the cache
     cache_flush_bit = 1
     rclass = int(f"{cache_flush_bit}000000000000001", 2)
 
@@ -343,6 +352,7 @@ def formatTypeTXT(name, ttl, txt_record_list):
     format = f"!B{len(hostname)}sB{len(domain_name)}sBHHIH"
     txt_components = []
 
+    # format the txt list
     for record in txt_record_list:
         txt_len = len(record)
 
@@ -359,15 +369,16 @@ def formatTypeTXT(name, ttl, txt_record_list):
 def createComplexResponse(service_name, target, ttl, port, ip, txt_list):
     header = format_MDNS_Header(1, 0, 3)
 
-    answer0 = formatTypeSRV(service_name, target, port, ttl)
-    answer1 = formatTypeA(target, ip, ttl)
-    answer2 = formatTypeTXT(target, ttl, txt_list)
+    answer0 = formatTypeA(target, ip, ttl)
+    answer1 = formatTypeTXT(target, ttl, txt_list)
+    answer2 = formatTypeSRV(service_name, target, port, ttl)
 
-    return header + answer1 + answer2 + answer0
+    return header + answer0 + answer1 + answer2
 
 
 # unpack SRV msg
 def unpackTypeSRV(response, offset):
+    # unpack each field, incrementing the offset to make the unpacking easier
     rservice, offset = unpackName(response, offset)
 
     rtype = struct.unpack_from("!H", response, offset)[0]
@@ -399,6 +410,7 @@ def unpackTypeSRV(response, offset):
 
 # unpack A msg
 def unpackTypeA(response, offset):
+    # unpack each field, incrementing the offset to make the unpacking easier
     rname, offset = unpackName(response, offset)
 
     rtype = struct.unpack_from("!H", response, offset)[0]
@@ -426,6 +438,7 @@ def unpackTypeA(response, offset):
 
 # unpack TXT msg
 def unpackTypeTXT(response, offset):
+    # unpack each field, incrementing the offset to make the unpacking easier
     rname, offset = unpackName(response, offset)
 
     rtype = struct.unpack_from("!H", response, offset)[0]
@@ -454,13 +467,13 @@ def unpackTypeTXT(response, offset):
     return (rname, rtype, ttl, txt_record_list), offset
 
 
-# parse complex
+# parse complex response
 def parseComplexResponse(response):
     flags, _, an_count = unpackHeader(response)
     if not an_count == 3:
         return
 
-    # start from after the header
+    # start after the header ( = 12 bytes)
     offset = 12
     typeA_message, offset = unpackTypeA(response, offset)
     typeTXT_message, offset = unpackTypeTXT(response, offset)
@@ -473,6 +486,8 @@ def parseComplexResponse(response):
 
 
 if __name__ == "__main__":
+    # tests
+
     # merge
     # request = createRequest("scanner1._scanner._udp.local", 0, "SRV")
     # print(request)

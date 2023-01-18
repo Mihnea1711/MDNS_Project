@@ -1,5 +1,4 @@
 #!/usr/bin/python3
-import time
 import tkinter as tk
 import tkinter.ttk as ttk
 from tkinter.scrolledtext import ScrolledText
@@ -8,14 +7,13 @@ import socket
 from Cache import *
 from CacheRecord import *
 from FormatWorker import *
-import SRV
 
 PORT = 5353
 IP_ADDR = "224.0.0.251"
 M_GROUP_ADDR = (IP_ADDR, PORT)
-HEADER_SIZE = 64      # this should change if messages get long!
 FORMAT = "utf-8"
 
+#       #       #       #   first socket options    #       #       #       #       #
 browser = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 browser.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 # browser.bind(("", PORT))
@@ -34,10 +32,11 @@ browser_listener.bind(("", PORT))
 
 m_req = struct.pack("4sl", socket.inet_aton(IP_ADDR), socket.INADDR_ANY)
 browser_listener.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, m_req)
-#
+#       #       #       #       #       #       #       #       #       #       #
 
 
 class RcpUiApp:
+    # initialize the GUI for the browser with tkinter
     def __init__(self, master=None):
         self.listener_is_active = False
         self.cache = Cache()
@@ -206,6 +205,7 @@ class RcpUiApp:
         # Main widget
         self.mainwindow = self.app_top_level
 
+    # used to update the time for each record of the cache and print it on GUI
     def updateCacheWindow(self):
         now = time.time()
         self.browser_local_cache.delete("0.0", "end")
@@ -218,11 +218,13 @@ class RcpUiApp:
                 cache_record.setTTL(math.floor(default_ttl - time_passed))
                 self.browser_local_cache.insert(tk.INSERT, str(cache_record) + "\n")
 
+    # used to print the TXT of the selected hostname on GUI
     def updateTXTRecordWindow(self, text_record_content):
         self.srv_txt_record.delete("0.0", "end")
         for record in text_record_content:
             self.srv_txt_record.insert(tk.INSERT, record + "\n")
 
+    # here we receive messages one socket
     def response_worker(self):
         print("[Waiting for responses..]")
         while True:
@@ -232,12 +234,13 @@ class RcpUiApp:
             flags, qd_count, an_count = unpackHeader(response)
 
             # check an_count
-            if an_count == 1:
-                # if 1 => a/ptr response
+            if flags and an_count == 1:
+                # if flags != 0 => response / if an_count = 1 => a/ptr response
                 rname, rtype, rclass, ttl, data = parseSimpleResponse(response)
                 if rtype == 12:
-                    # ptr
+                    # ptr response
                     ptr_serv = ""
+                    # here we parse the data to show the available services in the group
                     if data:
                         ptr_serv = data.split(".")[1]
                     instance = ".".join(rname.split(".")[:-2])
@@ -247,71 +250,78 @@ class RcpUiApp:
                         self.services_listbox.insert(1, f"{instance}")
 
                 elif rtype == 1:
-                    # a
-                    # received change configs msg
+                    # a response
+                    # should work but it doesn't :(
                     print(response)
                     browser.sendto("received".encode(FORMAT), recv_from)
                     # here we receive a response regarding any changes that have been made upon a device
                     # ... (not working)
 
-            elif an_count == 3:
-                # if 3 => srv + a + txt req
+            elif flags and an_count == 3:
+                # if flags != 0 => response / if an_count = 3 => (srv + a + txt) response
                 typeA_message, typeTXT_message, typeSRV_message = parseComplexResponse(response)
 
-                # type A
+                # type A content
                 hostname = ".".join(typeA_message[0].split(".")[:-1])
                 rclass = typeA_message[2]
                 ttl = typeA_message[3]
                 ip = typeA_message[4]
 
-                # type TXT
+                # type TXT content
                 txt_rec = typeTXT_message[3]
 
-                # type SRV
+                # type SRV content
                 srv = typeSRV_message[1].split(".")[0]
 
-                # cache flush
+                # if cache flush
                 if rclass != 1:
-                    # store record and update cache
+                    # restore record and update cache
                     cache_record = CacheRecord(f"{hostname}", ip, ttl)
                     self.cache.flushCacheRecord(cache_record)
                 else:
                     # should not get here
                     pass
 
-                # show txt rec
+                # show txt record and cache
                 self.updateCacheWindow()
                 self.updateTXTRecordWindow(txt_rec)
 
+    # second thread of the app (for the backend)
     def listenToResponses(self):
         listen_thread = threading.Thread(target=self.response_worker)
         listen_thread.start()
 
+    # here we receive messages shared in the group
     def logs_listener(self):
         while True:
             response, recv_from = browser_listener.recvfrom(1024)
             flags, qd_count, an_count = unpackHeader(response)
 
+            # if flags != 0 => response / if an_count = 1 => a/ptr response
             if flags and an_count == 1:
                 # single response
                 rname, rtype, rclass, ttl, data = parseSimpleResponse(response)
+                # if rtype == 1 => A response / if rclass != 1 => cache flush
                 if rtype == 1 and rclass != 1:
-                    # type A, cache flush
+                    # update record in cache if there is already stored
                     hostname = rname.split(".")[0]
                     cache_record = CacheRecord(hostname, data, ttl)
                     self.cache.updateCacheRecord(cache_record)
                     self.updateCacheWindow()
 
+    # third thread of the app (for the backend)
     def listenToChangeLogs(self):
         listen_thread = threading.Thread(target=self.logs_listener)
         listen_thread.start()
 
+    # main thread (for the GUI)
     def run(self):
         self.listenToChangeLogs()
         self.mainwindow.mainloop()
 
+    # callback for searching the group for services
     def search_service(self):
-        self.updateCacheWindow()
+        # format the search key for services
         service = self.service_name_entry.get()
         isEmpty = 1 if service == "" else 0
         self.services_listbox.delete(0, tk.END)
@@ -329,23 +339,32 @@ class RcpUiApp:
         request = createRequest(service, 0, "ptr")
         browser.sendto(request, M_GROUP_ADDR)
 
+        # the search button takes care of the "refresh cache"
+        # should not be like this but ayaye
+        self.updateCacheWindow()
+
+        # after searching for a service, start listening for responses
         if not self.listener_is_active:
             self.listener_is_active = True
             self.listenToResponses()
 
+    # callback for selecting a service from the list shown in GUI
     def select_service(self):
+        # if we are listening to responses
         if self.listener_is_active:
+            # create SRV request to connect to the selected service
             selected_instance = self.services_listbox.get(self.services_listbox.curselection()[0])
             qname = f"{selected_instance}._udp.local"
 
             request = createRequest(qname, 0, 'srv')
 
+            # if we have already stored the service's hostname and ip, we should send it directly with the ip from cache
             ip_from_cache = self.cache.searchCacheByHostname(selected_instance.split(".")[0])
             if ip_from_cache:
                 print("Sent to the ip from cache!\n")
                 browser.sendto(request, (ip_from_cache, PORT))
-
-            browser.sendto(request, M_GROUP_ADDR)
+            else:
+                browser.sendto(request, M_GROUP_ADDR)
 
 
 if __name__ == "__main__":

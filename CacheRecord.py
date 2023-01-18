@@ -1,6 +1,10 @@
 import time
 
 
+# actual record inside the cache
+# the default ttl field is the actual value from the GUI
+# the ttl field is the one that is decremented
+# probably there is a better way to code this, too
 class CacheRecord:
     def __init__(self, hostname, ip, ttl):
         self.hostname = hostname
@@ -35,5 +39,3 @@ class CacheRecord:
 
     def getTimeCreated(self):
         return self.time_created
-
-

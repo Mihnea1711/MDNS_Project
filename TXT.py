@@ -1,3 +1,4 @@
+# class to store data (list of key=value -s) about a service
 class TXT_RECORD:
     # should store pairs of key and values, including the length of the string
     # must not duplicate info already stored in srv!
@@ -16,6 +17,7 @@ class TXT_RECORD:
     def getList(self):
         return self.list
 
+    # validate the update of the txt list
     def updateList(self, list_to_insert):
         flag = True
         message = ""
@@ -33,9 +35,7 @@ class TXT_RECORD:
 
             key = words[0].strip()
             value = words[1].strip()
-            aux = f"{key}={value}"
-            # string = f"{len(aux)}{aux}"
-            string = f"{aux}"
+            string = f"{key}={value}"
 
             self.list.append(string)
 

@@ -4,6 +4,7 @@ PORT = 5353
 TTL = 120   # default time to live
 
 
+# class to store data (service, protocol, domain, target, etc) about a service
 class SRV_RECORD:
     def __init__(self, service, target):
         self.service = service if service[0] == "_" else f"_{service}"

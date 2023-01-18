@@ -16,7 +16,6 @@ service_types = ["printer", "tv", "camera", "speaker"]
 PORT = 5353
 IP_ADDR = "224.0.0.251"
 M_GROUP_ADDR = (IP_ADDR, PORT)
-HEADER_SIZE = 64      # this should change if messages get long!
 FORMAT = "utf-8"
 
 #           #         #        socket options           #           #           #           #
@@ -34,6 +33,7 @@ service.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, m_req)
 
 
 class RCPServiceApp:
+    # initialize the GUI for the service with tkinter
     def __init__(self, master=None):
         # Variables
         self.default_service_name = service_types[random.randint(0, len(service_types) - 1)]
@@ -246,15 +246,19 @@ class RCPServiceApp:
         # Main widget
         self.mainwindow = toplevel1
 
+    # here we receive any requests from the multicast group
     def requests_listener_worker(self):
         while True:
             request, received_from = service.recvfrom(1024)
             flags, qd_count, _, query, qtype = parseRequest(request)
 
+            # ignore anu responses
             if flags != 0:
                 pass
+            # ignore requests with no question(??) attached
             elif not qd_count:
                 pass
+            # ignore any request not having the query not using udp protocol or local domain name
             elif not query.endswith("_udp.local"):
                 pass
             else:
@@ -280,12 +284,14 @@ class RCPServiceApp:
                 else:
                     pass
 
+    # second thread for the app (for the backend)
     def listenToRequests(self):
         listen_thread = threading.Thread(target=self.requests_listener_worker)
         listen_thread.start()
 
+    # main thread of the app (for the GUI)
     def run(self):
-        # verificari
+        # verification
         # print("SRV: ", self.SRV_RECORD)
         # print("A: ", self.A_RECORD)
         # print("TXT: ", self.TXT_RECORD.getList())
@@ -293,6 +299,7 @@ class RCPServiceApp:
         self.listenToRequests()
         self.mainwindow.mainloop()
 
+    # callback for saving he configs for the service
     def save_config(self):
         self.A_RECORD.setHostname(self.hostname.get())
         flagA, msgA = self.A_RECORD.setIP(self.ip.get())
@@ -304,6 +311,7 @@ class RCPServiceApp:
 
         flagT, msgT = self.TXT_RECORD.updateList(self.text_record.get("0.0", "end").split("\n"))
 
+        # if any error occurs, don't save and rollback changes
         if not flagA or not flagT or not flagTTL:
             self.ip.set(self.A_RECORD.getIP())
             self.text_record.delete("0.0", "end")
@@ -312,18 +320,17 @@ class RCPServiceApp:
             info_message = msgA + msgT + msgTTL
             tkinter.messagebox.showerror("Warning", info_message + "\nYour configs were not saved!")
         else:
+            # otherwise, save configs successfully
             tkinter.messagebox.showinfo("Success", "Saved your configs..")
-            # self.configs_changed = True
 
-            # send request to flush the cache and to store changes
+            # send request to flush the cache and to store changes if any browser has stored this service
             hostname = f"{self.hostname.get()}.{self.SRV_RECORD.getDomain()}"
 
-            # create change log to send to the multicast group
+            # create change log to send to the multicast group (type A msg)
             change_configs_response = createResponse_TypeA(hostname, self.ip.get(), int(self.ttl_entry.get()))
             service.sendto(change_configs_response, M_GROUP_ADDR)
 
-
-        # verificari
+        # verification
         # print("SRV: ", self.SRV_RECORD)
         # print("A: ", self.A_RECORD)
         # print("TXT: ", self.TXT_RECORD.getList())
