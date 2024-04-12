@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+import math
 import tkinter as tk
 import tkinter.ttk as ttk
 from tkinter.scrolledtext import ScrolledText
