@@ -18,5 +18,5 @@ This is a Python application designed to facilitate service discovery within loc
 - **Service Functionality**: Each discovered service adheres to a predefined functionality, responding to browser calls for establishing connections and other purposes. When a user selects a service from the browser interface, the application initiates a connection request to the selected service. Upon successful connection establishment, the service responds to subsequent requests from the browser, providing access to its functionalities and resources as defined.
 - **Connection Establishment**: The browser initiates a connection establishment process with the selected service, typically involving handshake protocols to negotiate connection parameters and ensure compatibility between the browser and the service. Once the connection is established, the browser can interact with the service to access its features and data.
 
-![Image](images\img1.png)
-![Image](images\img2.png)
+![Image](images/img1.png)
+![Image](images/img2.png)
